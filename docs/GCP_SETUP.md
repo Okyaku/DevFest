@@ -54,6 +54,17 @@ Firebase Console → App Hosting → **始める** → GitHub リポジトリと
 
 デプロイ後、Cloud Run の `ALLOWED_ORIGINS` を App Hosting の公開 URL に更新してください。最後にブラウザで新規登録、服登録、着用記録の順に確認します。
 
-## 5. 予算ガードレール
+## 5. GitHub Actions で Firebase Hosting にデプロイする場合
+
+このリポジトリの `.github/workflows/deploy.yml` は Firebase Hosting へ静的エクスポートをデプロイします。Next.js は `NEXT_PUBLIC_*` の値を**ビルド時**に埋め込むため、GitHub リポジトリの Settings → Secrets and variables → Actions に、Firebase コンソールのウェブアプリ設定から次の 4 つの repository secrets を追加してください。
+
+- `NEXT_PUBLIC_FIREBASE_API_KEY`
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+- `NEXT_PUBLIC_FIREBASE_APP_ID`
+
+これらはブラウザに配布される Firebase Web SDK の設定値であり、認証情報の秘密鍵ではありません。それでも環境ごとの設定を誤ってコミットしないため、Actions secrets として管理します。追加後に `main` へ再実行またはワークフローを再実行してください。
+
+## 6. 予算ガードレール
 
 Billing → Budgets & alerts で `$10`、`$15`、`$20` の予算アラートを作成します。Cloud Run は最大 2 インスタンス、App Hosting は最小 0、Cloud SQL は利用しない期間に停止します。

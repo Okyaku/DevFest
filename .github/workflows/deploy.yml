@@ -37,5 +37,13 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - run: npm ci
+      # NEXT_PUBLIC_* values are compiled into the static export by Next.js.
+      # Store the Firebase Web app configuration in repository secrets so the
+      # production bundle is configured without committing a local .env file.
       - run: make deploy-web
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
       - run: make deploy-api
