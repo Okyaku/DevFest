@@ -1,0 +1,28 @@
+import { serve } from "@hono/node-server";
+import { Storage } from "@google-cloud/storage";
+import admin from "firebase-admin";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import { analyzeInputSchema, clothesInputSchema, logInputSchema, uploadRequestSchema } from "@ai-closet/shared";
+
+const app = new Hono<{ Variables: { uid: string } }>();
+const bucketName = process.env.GCS_BUCKET;
+const storage = new Storage();
+const db = new Pool({ connectionString: process.env.DATABASE_URL });
+if (!admin.apps.length) admin.initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID });
+app.use("/*", cors({ origin: (origin) => (process.env.ALLOWED_ORIGINS ?? "http://localhost:3000").split(",").includes(origin) ? origin : "", allowHeaders:["Authorization","Content-Type"], allowMethods:["GET","POST","PUT","DELETE"] }));
+app.use("/api/*", async (c,next)=>{ const token=c.req.header("Authorization")?.replace("Bearer ",""); if(!token) return c.json({ok:false,error:"Unauthorized"},401); try { const decoded=await admin.auth().verifyIdToken(token); c.set("uid",decoded.uid); await next(); } catch { return c.json({ok:false,error:"Invalid authentication token"},401); } });
+app.get("/health", c=>c.json({ok:true}));
+async function ensureUser(uid: string) { await db.query("INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING", [uid]); }
+app.post("/api/uploads", async c=>{ const input=uploadRequestSchema.parse(await c.req.json()); if(!bucketName) return c.json({ok:false,error:"GCS_BUCKET is not configured"},500); const key=`users/${c.get("uid")}/${input.kind}/${randomUUID()}.${input.contentType.split("/")[1]}`; const [url]=await storage.bucket(bucketName).file(key).getSignedUrl({version:"v4",action:"write",expires:Date.now()+10*60_000,contentType:input.contentType}); return c.json({ok:true,key,uploadUrl:url,expiresIn:600}); });
+app.get("/api/clothes", async c=>{ const uid=c.get("uid"); const { rows }=await db.query("SELECT id AS \"clothesId\", category, sub_category AS \"subCategory\", color, sleeve_length AS \"sleeveLength\", hem_length AS \"hemLength\", seasons AS season, scene, image_key AS \"imageKey\", name, notes, created_at AS \"createdAt\" FROM clothes WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC",[uid]); return c.json({ok:true,items:rows}); });
+app.post("/api/clothes", async c=>{ const uid=c.get("uid"), item=clothesInputSchema.parse(await c.req.json()); await ensureUser(uid); const {rows:[created]}=await db.query("INSERT INTO clothes (user_id,category,sub_category,color,sleeve_length,hem_length,seasons,scene,image_key,name,notes,category_color) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id AS \"clothesId\", category, color, image_key AS \"imageKey\", name",[uid,item.category,item.subCategory??null,item.color,item.sleeveLength??null,item.hemLength??null,item.season,item.scene??null,item.imageKey??null,item.name??null,item.notes??null,`${item.category}#${item.color}`]); return c.json({ok:true,item:created},201); });
+app.get("/api/clothes/:id", async c=>{ const {rows}=await db.query("SELECT id AS \"clothesId\", category, sub_category AS \"subCategory\", color, sleeve_length AS \"sleeveLength\", hem_length AS \"hemLength\", seasons AS season, scene, image_key AS \"imageKey\", name, notes FROM clothes WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL",[c.req.param("id"),c.get("uid")]); return rows[0]?c.json({ok:true,item:rows[0]}):c.json({ok:false,error:"Not found"},404); });
+app.delete("/api/clothes/:id", async c=>{ const result=await db.query("UPDATE clothes SET deleted_at=NOW(),updated_at=NOW() WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL",[c.req.param("id"),c.get("uid")]); return result.rowCount?c.json({ok:true}):c.json({ok:false,error:"Not found"},404); });
+app.get("/api/logs", async c=>{ const uid=c.get("uid"), from=c.req.query("from"),to=c.req.query("to"); if(!from||!to) return c.json({ok:false,error:"from and to are required"},400); const {rows}=await db.query("SELECT id AS \"logId\", local_date AS date, selfie_key AS \"selfieKey\", selections, created_at AS \"createdAt\", COALESCE(array_agg(wli.clothes_id) FILTER (WHERE wli.clothes_id IS NOT NULL),'{}') AS \"clothesIds\" FROM wear_logs wl LEFT JOIN wear_log_items wli ON wli.wear_log_id=wl.id WHERE wl.user_id=$1 AND wl.local_date BETWEEN $2 AND $3 GROUP BY wl.id ORDER BY wl.local_date DESC",[uid,from,to]); return c.json({ok:true,items:rows}); });
+app.post("/api/logs", async c=>{ const uid=c.get("uid"), item=logInputSchema.parse(await c.req.json()); await ensureUser(uid); const client=await db.connect(); try { await client.query("BEGIN"); const {rows:[log]}=await client.query("INSERT INTO wear_logs (user_id,local_date,selfie_key,selections) VALUES ($1,$2,$3,$4) RETURNING id AS \"logId\"",[uid,item.date,item.selfieKey??null,item.selections??null]); for(const clothesId of item.clothesIds) await client.query("INSERT INTO wear_log_items (wear_log_id,clothes_id) SELECT $1,id FROM clothes WHERE id=$2 AND user_id=$3 AND deleted_at IS NULL",[log.logId,clothesId,uid]); await client.query("COMMIT"); return c.json({ok:true,item:{...item,logId:log.logId}},201); } catch(error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); } });
+app.post("/api/analyze", async c=>{ const {topK}=analyzeInputSchema.parse(await c.req.json()); return c.json({ok:true,results:[],topK,notice:"Connect Vertex AI service before production"}); });
+app.onError((err,c)=>{ console.error(err); return c.json({ok:false,error:"Request could not be completed"},400); });
+serve({fetch:app.fetch,port:Number(process.env.PORT??8080)});
