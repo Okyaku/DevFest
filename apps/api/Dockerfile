@@ -10,6 +10,7 @@ RUN npm run build --workspace=@ai-closet/api
 FROM node:22-slim
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/apps/api/dist ./dist
+COPY --from=build /app/apps/api/src ./apps/api/src
+COPY --from=build /app/packages/shared ./packages/shared
 ENV NODE_ENV=production PORT=8080
-CMD ["node", "dist/index.js"]
+CMD ["node_modules/.bin/tsx", "apps/api/src/index.ts"]
