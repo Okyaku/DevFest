@@ -24,11 +24,11 @@ export const logInputSchema = z.object({
 export const analyzeInputSchema = z.object({ selfieKey: z.string().min(1), topK: z.number().int().min(1).max(3).default(3) });
 
 export const profileInputSchema = z.object({
-  displayName: z.string().max(50).optional(),
-  avatarKey: z.string().optional(),
+  displayName: z.string().max(50).nullable().optional(),
+  avatarKey: z.string().nullable().optional(),
   age: z.number().int().min(1).max(150).nullable().optional(),
-  prefecture: z.string().max(10).optional(),
-  district: z.string().max(30).optional(),
+  prefecture: z.string().max(10).nullable().optional(),
+  district: z.string().max(30).nullable().optional(),
 });
 export type ProfileInput = z.infer<typeof profileInputSchema>;
 
