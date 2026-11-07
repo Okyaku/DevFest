@@ -10,5 +10,6 @@ coverage/
 !.env.example
 .firebase/
 firebase-debug.log
+gcloud-credentials-*.json
 service-account*.json
 *.pem
