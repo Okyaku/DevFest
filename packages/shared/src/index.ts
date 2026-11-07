@@ -72,3 +72,7 @@ export const prefectures = [
 
 export const categoryLabels: Record<(typeof categories)[number], string> = { tops: "トップス", bottoms: "ボトムス", outer: "アウター", dress: "ワンピース", shoes: "シューズ" };
 export const colorLabels: Record<(typeof colors)[number], string> = { white: "白", black: "黒", gray: "グレー", brown: "ブラウン", beige: "ベージュ", blue: "青", navy: "ネイビー", green: "緑", yellow: "黄", orange: "オレンジ", red: "赤", pink: "ピンク", purple: "紫", gold: "ゴールド", silver: "シルバー", denim: "デニム", "multi-color": "マルチカラー" };
+export const subCategoryLabels: Record<(typeof subCategories)[number], string> = { "t-shirt": "Tシャツ", "shirt/blouse": "シャツ・ブラウス", "knit/sweater": "ニット・セーター", "sweatshirt/hoodie": "スウェット・パーカー", "denim/jeans": "デニム", "slacks/pants": "スラックス・パンツ", skirt: "スカート", shorts: "ショートパンツ", "jacket/coat": "ジャケット・コート", cardigan: "カーディガン", "one-piece": "ワンピース", setup: "セットアップ", sneakers: "スニーカー", "leather/pumps": "革靴・パンプス", boots: "ブーツ", sandals: "サンダル" };
+export const lengthLabels: Record<(typeof lengths)[number], string> = { short: "短め", half: "中間", long: "長め" };
+export const seasonLabels: Record<(typeof seasons)[number], string> = { spring: "春", summer: "夏", fall: "秋", winter: "冬" };
+export const sceneLabels: Record<(typeof scenes)[number], string> = { casual: "カジュアル", business: "ビジネス", feminine: "フェミニン", other: "その他" };
