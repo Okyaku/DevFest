@@ -1,0 +1,14 @@
+{
+  "name": "ai-closet",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@ai-closet/web",
+    "dev:api": "npm run dev --workspace=@ai-closet/api",
+    "deploy:web": "npm run build --workspace=@ai-closet/web && firebase deploy --only hosting --project devfest-513813",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": { "node": ">=22" },
+  "devDependencies": { "concurrently": "^9.2.1", "firebase-tools": "^14.18.0" }
+}
