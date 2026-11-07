@@ -6,6 +6,8 @@ import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerificati
 import { auth } from "@/lib/firebase";
 import { apiFetch } from "@/lib/api";
 import { demoItems } from "@/lib/demo";
+import { OutfitLogFlow } from "@/components/OutfitLogFlow";
+
 
 type Tab = "home" | "calendar" | "stats" | "settings";
 export default function Home() {
@@ -17,7 +19,7 @@ export default function Home() {
  return <ClosetApp/>;
 }
 function ClosetApp() {
- const [tab, setTab] = useState<Tab>("home"); const [menu, setMenu] = useState(false); const [form, setForm] = useState(false);
+ const [tab, setTab] = useState<Tab>("home"); const [menu, setMenu] = useState(false); const [form, setForm] = useState(false); const [logFlow, setLogFlow] = useState(false);
  const [showMyPage, setShowMyPage] = useState(false);
  const [profile, setProfile] = useState<ProfileInput>({});
  useEffect(()=>{ apiFetch("/api/profile").then(r=>{ if(r.ok && r.profile) setProfile(r.profile); }).catch(()=>{}); },[]);
@@ -28,8 +30,8 @@ function ClosetApp() {
  {tab === "home" && !showMyPage && <><section className="intro"><Sparkles size={18}/><p>こんにちは、今日はどんな服を着ましたか？</p></section><div className="section-head"><h2>あなたの服 <span>{demoItems.length}</span></h2><button>すべて見る</button></div><section className="closet">{demoItems.map(item=><article key={item.id} className="garment"><img src={item.image} alt={item.name}/><div><p>{item.name}</p><small>{categoryLabels[item.category]} · {colorLabels[item.color]}</small></div></article>)}</section></>}
  {tab === "calendar" && !showMyPage && <CalendarView />}{tab === "stats" && !showMyPage && <StatsView />}{tab === "settings" && !showMyPage && <SettingsView logout={()=>signOut(auth)} profile={profile} onEditProfile={()=>setShowMyPage(true)}/>}
  {showMyPage && <MyPageView profile={profile} onSave={saveProfile}/>}
- {tab === "home" && !showMyPage && <><div className={menu?"scrim on":"scrim"} onClick={()=>setMenu(false)}/><div className={menu?"fab-menu open":"fab-menu"}><button onClick={()=>{setMenu(false);setForm(true)}}><Plus/>新しい服を登録</button><button><Camera/>今日の服を記録</button></div><button className="fab" onClick={()=>setMenu(!menu)} aria-label="撮影メニュー"><Camera/></button></>}
- {form && <ClothesForm close={()=>setForm(false)}/>}<nav>{[["calendar",CalendarDays,"カレンダー"],["home",Shirt,"ホーム"],["stats",ChartNoAxesColumn,"統計"],["settings",Settings,"設定"]].map(([id,Icon,label])=><button key={String(id)} className={tab===id?"active":""} onClick={()=>{setTab(id as Tab);setShowMyPage(false)}}><Icon size={21}/><span>{label as string}</span></button>)}</nav></main>;
+ {tab === "home" && !showMyPage && <><div className={menu?"scrim on":"scrim"} onClick={()=>setMenu(false)}/><div className={menu?"fab-menu open":"fab-menu"}><button onClick={()=>{setMenu(false);setForm(true)}}><Plus/>新しい服を登録</button><button onClick={()=>{setMenu(false);setLogFlow(true)}}><Camera/>今日の服を記録</button></div><button className="fab" onClick={()=>setMenu(!menu)} aria-label="撮影メニュー"><Camera/></button></>}
+ {form && <ClothesForm close={()=>setForm(false)}/>}{logFlow && <OutfitLogFlow close={()=>setLogFlow(false)} onRegister={()=>{setLogFlow(false);setForm(true)}}/>}<nav>{[["calendar",CalendarDays,"カレンダー"],["home",Shirt,"ホーム"],["stats",ChartNoAxesColumn,"統計"],["settings",Settings,"設定"]].map(([id,Icon,label])=><button key={String(id)} className={tab===id?"active":""} onClick={()=>{setTab(id as Tab);setShowMyPage(false)}}><Icon size={21}/><span>{label as string}</span></button>)}</nav></main>;
 }
 function CalendarView(){return <section className="calendar"><p className="month">2026年 11月</p><div className="week">{["日","月","火","水","木","金","土"].map(x=><span key={x}>{x}</span>)}</div><div className="days">{Array.from({length:30},(_,i)=><button className={[3,8,13,19,26].includes(i)?"logged":""} key={i}>{i+1}</button>)}</div><h2>11月の記録</h2><p className="muted">5日着用を記録しました。</p></section>}
 function StatsView(){return <section className="stats"><p className="metric">5 <span>回</span></p><p className="muted">今月の着用記録</p><div className="bar"><i/><i/><i/></div><h2>よく着た服</h2><ol><li>白いTシャツ <b>3回</b></li><li>デニムパンツ <b>2回</b></li><li>ネイビージャケット <b>1回</b></li></ol></section>}
