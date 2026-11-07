@@ -6,12 +6,27 @@ export const subCategories = ["t-shirt", "shirt/blouse", "knit/sweater", "sweats
 export const seasons = ["spring", "summer", "fall", "winter"] as const;
 export const scenes = ["casual", "business", "feminine", "other"] as const;
 
+export const lengths = ["short", "half", "long"] as const;
+
+/** subCategory ごとに許される親 category。cardigan はトップスとしてもアウターとしても扱う */
+export const subCategoryParents: Record<(typeof subCategories)[number], readonly (typeof categories)[number][]> = {
+  "t-shirt": ["tops"], "shirt/blouse": ["tops"], "knit/sweater": ["tops"], "sweatshirt/hoodie": ["tops"],
+  "denim/jeans": ["bottoms"], "slacks/pants": ["bottoms"], skirt: ["bottoms"], shorts: ["bottoms"],
+  "jacket/coat": ["outer"], cardigan: ["outer", "tops"],
+  "one-piece": ["dress"], setup: ["dress"],
+  sneakers: ["shoes"], "leather/pumps": ["shoes"], boots: ["shoes"], sandals: ["shoes"]
+};
+export function isSubCategoryOf(sub: string | null | undefined, category: string): boolean {
+  if (!sub) return true;
+  return (subCategoryParents as Record<string, readonly string[]>)[sub]?.includes(category) ?? false;
+}
+
 export const clothesInputSchema = z.object({
   category: z.enum(categories), color: z.enum(colors), subCategory: z.enum(subCategories).optional(),
-  sleeveLength: z.enum(["short", "half", "long"]).optional(), hemLength: z.enum(["short", "half", "long"]).optional(),
+  sleeveLength: z.enum(lengths).optional(), hemLength: z.enum(lengths).optional(),
   season: z.array(z.enum(seasons)).default([]), scene: z.enum(scenes).optional(), imageKey: z.string().min(1).optional(),
-  name: z.string().max(80).optional(), notes: z.string().max(500).optional()
-});
+  name: z.string().max(80).optional(), notes: z.string().max(500).optional(),
+}).refine(v => isSubCategoryOf(v.subCategory, v.category), { message: "subCategory does not belong to category", path: ["subCategory"] });
 export type ClothesInput = z.infer<typeof clothesInputSchema>;
 
 export const uploadRequestSchema = z.object({
