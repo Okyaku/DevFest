@@ -19,6 +19,8 @@ npm run dev:api
 npm run dev:web
 ```
 
+よく使う操作は `make help` で一覧表示できる。Web と API の開発サーバーは別ターミナルで `make dev-web` と `make dev-api` を実行する。
+
 実クラウド接続前は `NEXT_PUBLIC_DEMO_MODE=true` にすると、UI のデモデータを表示できます。
 
 GCP 構築・デプロイは [docs/GCP_SETUP.md](docs/GCP_SETUP.md) を参照してください。フロントエンドの制約は [docs/STATIC_FRONTEND_RULES.md](docs/STATIC_FRONTEND_RULES.md) を参照してください。
