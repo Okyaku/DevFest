@@ -54,10 +54,24 @@ export type ClothesInput = z.infer<typeof clothesInputSchema>;
 export const uploadRequestSchema = z.object({
   kind: z.enum(["items", "selfies", "profile"]), contentType: z.enum(["image/jpeg", "image/png", "image/webp"]), size: z.number().positive().max(10 * 1024 * 1024)
 });
-export const logInputSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), selfieKey: z.string().optional(),
-  selections: z.record(z.string()).optional(), clothesIds: z.array(z.string().uuid()).min(1)
+export const logItemSchema = z.object({
+  clothesId: z.string().uuid(),
+  slot: z.string().max(20).optional(),
+  score: z.number().int().min(0).max(100).optional(),
+  rank: z.number().int().min(1).max(50).optional(),
+  reasons: z.array(z.string().max(40)).max(10).optional()
 });
+export const logInputSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), timezone: z.string().max(64).optional(),
+  selfieKey: z.string().optional(), analysisVersion: z.string().max(40).optional(),
+  selections: z.record(z.string()).optional(),
+  /** 空配列は「写真だけの日記」。着用統計には含めない */
+  clothesIds: z.array(z.string().uuid()).default([]),
+  /** 選択時の候補情報（AI が何位に出し、何を選んだかの評価用） */
+  items: z.array(logItemSchema).max(20).optional()
+});
+export type LogInput = z.infer<typeof logInputSchema>;
+
 export const analyzeInputSchema = z.object({ selfieKey: z.string().min(1), topK: z.number().int().min(1).max(3).default(3) });
 
 export const profileInputSchema = z.object({
