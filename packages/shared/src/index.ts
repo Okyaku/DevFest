@@ -21,6 +21,19 @@ export function isSubCategoryOf(sub: string | null | undefined, category: string
   return (subCategoryParents as Record<string, readonly string[]>)[sub]?.includes(category) ?? false;
 }
 
+/** 完全一致ではないが候補からは外さない近似関係（双方向） */
+export const colorNeighbors: Partial<Record<(typeof colors)[number], readonly (typeof colors)[number][]>> = {
+  blue: ["navy", "denim"], navy: ["blue", "denim", "black"], denim: ["blue", "navy"],
+  white: ["beige", "silver"], beige: ["white", "brown"], brown: ["beige"],
+  gray: ["black", "silver"], black: ["gray", "navy"], silver: ["gray", "white"], gold: ["yellow"], yellow: ["gold"]
+};
+export const subCategoryNeighbors: Partial<Record<(typeof subCategories)[number], readonly (typeof subCategories)[number][]>> = {
+  "knit/sweater": ["sweatshirt/hoodie", "cardigan"], "sweatshirt/hoodie": ["knit/sweater"], cardigan: ["knit/sweater", "jacket/coat"],
+  "jacket/coat": ["cardigan"], "t-shirt": ["shirt/blouse"], "shirt/blouse": ["t-shirt"],
+  "denim/jeans": ["slacks/pants"], "slacks/pants": ["denim/jeans"], skirt: ["shorts"], shorts: ["skirt"],
+  "one-piece": ["setup"], setup: ["one-piece"], sneakers: ["leather/pumps"], "leather/pumps": ["sneakers", "boots"], boots: ["leather/pumps"]
+};
+
 export const clothesInputSchema = z.object({
   category: z.enum(categories), color: z.enum(colors), subCategory: z.enum(subCategories).optional(),
   sleeveLength: z.enum(lengths).optional(), hemLength: z.enum(lengths).optional(),
