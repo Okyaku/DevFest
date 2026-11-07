@@ -34,11 +34,20 @@ export const subCategoryNeighbors: Partial<Record<(typeof subCategories)[number]
   "one-piece": ["setup"], setup: ["one-piece"], sneakers: ["leather/pumps"], "leather/pumps": ["sneakers", "boots"], boots: ["leather/pumps"]
 };
 
+const aiTagsSchema = z.object({
+  category: z.enum(categories), subCategory: z.enum(subCategories).nullable(), color: z.enum(colors),
+  sleeveLength: z.enum(lengths).nullable(), hemLength: z.enum(lengths).nullable(),
+  season: z.array(z.enum(seasons)), scene: z.enum(scenes).nullable()
+});
+const confidenceSchema = z.record(z.number().min(0).max(1).nullable());
+
 export const clothesInputSchema = z.object({
   category: z.enum(categories), color: z.enum(colors), subCategory: z.enum(subCategories).optional(),
   sleeveLength: z.enum(lengths).optional(), hemLength: z.enum(lengths).optional(),
   season: z.array(z.enum(seasons)).default([]), scene: z.enum(scenes).optional(), imageKey: z.string().min(1).optional(),
   name: z.string().max(80).optional(), notes: z.string().max(500).optional(),
+  /** AI の初期提案（評価用）。正規タグとは別に保存し、上書きに使わない */
+  ai: z.object({ tags: aiTagsSchema, confidence: confidenceSchema, analysisVersion: z.string().max(40) }).optional()
 }).refine(v => isSubCategoryOf(v.subCategory, v.category), { message: "subCategory does not belong to category", path: ["subCategory"] });
 export type ClothesInput = z.infer<typeof clothesInputSchema>;
 
