@@ -72,7 +72,39 @@ export const logInputSchema = z.object({
 });
 export type LogInput = z.infer<typeof logInputSchema>;
 
-export const analyzeInputSchema = z.object({ selfieKey: z.string().min(1), topK: z.number().int().min(1).max(3).default(3) });
+export const analyzeInputSchema = z.object({ selfieKey: z.string().min(1), topK: z.number().int().min(1).max(5).default(3) });
+export const analyzeOutfitInputSchema = z.object({ selfieKey: z.string().min(1), topK: z.number().int().min(1).max(5).default(5), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+export const analyzeItemInputSchema = z.object({ imageKey: z.string().min(1) });
+
+/** 服単品の解析結果（モデル出力をサーバーで正規化した後の形） */
+export const analyzeItemResultSchema = aiTagsSchema.extend({
+  description: z.string().max(80).nullable(),
+  confidence: confidenceSchema,
+  needsReview: z.boolean(),
+  reviewFields: z.array(z.string()),
+  warnings: z.array(z.enum(["multiple_garments", "poor_image"]))
+});
+export type AnalyzeItemResult = z.infer<typeof analyzeItemResultSchema>;
+
+export const outfitSlotStatuses = ["candidates_found", "no_candidates", "low_confidence", "image_not_usable"] as const;
+export const outfitCandidateSchema = z.object({
+  clothesId: z.string(), score: z.number().int().min(0).max(100), reasons: z.array(z.string()),
+  name: z.string().nullable(), category: z.enum(categories), color: z.enum(colors),
+  subCategory: z.enum(subCategories).nullable(), imageKey: z.string().nullable(), imageUrl: z.string().nullable()
+});
+export const outfitSlotSchema = z.object({
+  slotId: z.string(),
+  detected: z.object({
+    category: z.enum(categories), subCategory: z.enum(subCategories).nullable(), color: z.enum(colors).nullable(),
+    sleeveLength: z.enum(lengths).nullable(), hemLength: z.enum(lengths).nullable(), confidence: z.number().min(0).max(1)
+  }),
+  candidates: z.array(outfitCandidateSchema),
+  status: z.enum(outfitSlotStatuses)
+});
+export const analyzeOutfitResultSchema = z.object({ analysisVersion: z.string(), slots: z.array(outfitSlotSchema), warnings: z.array(z.string()) });
+export type OutfitSlot = z.infer<typeof outfitSlotSchema>;
+export type OutfitCandidate = z.infer<typeof outfitCandidateSchema>;
+export type AnalyzeOutfitResult = z.infer<typeof analyzeOutfitResultSchema>;
 
 export const profileInputSchema = z.object({
   displayName: z.string().max(50).nullable().optional(),
