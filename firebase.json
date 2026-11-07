@@ -1,1 +1,10 @@
-{ "apphosting": [{ "backendId": "ai-closet-web", "rootDir": "." }] }
+{
+  "hosting": {
+    "public": "apps/web/out",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "headers": [{
+      "source": "**/*",
+      "headers": [{ "key": "Cache-Control", "value": "public,max-age=3600" }]
+    }]
+  }
+}

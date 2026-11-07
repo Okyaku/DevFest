@@ -1,3 +1,6 @@
 import type { NextConfig } from "next";
-const nextConfig: NextConfig = { transpilePackages: ["@ai-closet/shared"] };
+const nextConfig: NextConfig = {
+  output: "export",
+  transpilePackages: ["@ai-closet/shared"]
+};
 export default nextConfig;

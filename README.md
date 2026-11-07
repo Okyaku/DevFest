@@ -4,7 +4,7 @@
 
 ## 構成
 
-- `apps/web`: Next.js + Firebase Authentication の画面
+- `apps/web`: Next.js 静的エクスポート + Firebase Authentication の画面
 - `apps/api`: Cloud Run で動かす Hono API
 - `packages/shared`: API 契約と服タグの正規語彙
 - `infra/database`: Cloud SQL PostgreSQL の初期スキーマ
@@ -21,4 +21,4 @@ npm run dev:web
 
 実クラウド接続前は `NEXT_PUBLIC_DEMO_MODE=true` にすると、UI のデモデータを表示できます。
 
-GCP 構築・デプロイは [docs/GCP_SETUP.md](docs/GCP_SETUP.md) を参照してください。
+GCP 構築・デプロイは [docs/GCP_SETUP.md](docs/GCP_SETUP.md) を参照してください。フロントエンドの制約は [docs/STATIC_FRONTEND_RULES.md](docs/STATIC_FRONTEND_RULES.md) を参照してください。
