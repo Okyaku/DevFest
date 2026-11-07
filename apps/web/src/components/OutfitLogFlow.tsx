@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Check, ImagePlus, RefreshCw, SwitchCamera, X } from "lucide-react";
-import { categoryLabels, colorLabels } from "@ai-closet/shared";
+import { categoryLabels, colorLabels, subCategoryLabels, type OutfitSlot } from "@ai-closet/shared";
 import { apiFetch, DEMO_MODE, localDate, uploadImage } from "@/lib/api";
 import { demoItems } from "@/lib/demo";
 
 type Step = "camera" | "preview" | "analyzing" | "select" | "saving" | "done";
-type ClosetItem = { clothesId: string; name?: string | null; category: keyof typeof categoryLabels; color: keyof typeof colorLabels; image?: string };
+type ClosetItem = { clothesId: string; name?: string | null; category: keyof typeof categoryLabels; color: keyof typeof colorLabels; imageUrl?: string | null };
 type CameraError = "unsupported" | "insecure" | "denied" | "notfound" | "unknown";
 
 const MAX_EDGE = 1280;
@@ -28,14 +28,46 @@ function toJpeg(source: CanvasImageSource, w: number, h: number): Promise<Blob> 
   return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error("encode failed"))), "image/jpeg", 0.85));
 }
 
+type Pick = { clothesId: string; score?: number; rank?: number; reasons?: string[] };
+type Analysis = { analysisVersion?: string; slots: OutfitSlot[] };
+type AnalysisError = "image_not_usable" | "analysis_failed" | null;
+const MANUAL = "manual";
+/** これ以上のスコアのトップ候補だけを初期選択にする。確定はユーザーが行う */
+const PRESELECT_MIN_SCORE = 60;
+
+const statusNotes: Partial<Record<OutfitSlot["status"], string>> = {
+  low_confidence: "写りがはっきりしません。候補が違う場合は手動で選んでください。",
+  no_candidates: "クローゼットに近い服が見つかりませんでした。",
+};
+
+function detectedSummary(d: OutfitSlot["detected"]) {
+  return [d.color && colorLabels[d.color], d.subCategory && subCategoryLabels[d.subCategory]].filter(Boolean).join(" · ");
+}
+
+/** デモモード用の解析結果（デモの服 3 着から候補を作る） */
+function demoAnalysis(items: ClosetItem[]): Analysis {
+  const scores = [92, 85, 58];
+  return {
+    analysisVersion: "demo",
+    slots: items.map((item, i) => ({
+      slotId: `${item.category}:0`,
+      detected: { category: item.category, subCategory: null, color: item.color, sleeveLength: null, hemLength: null, confidence: i === 2 ? 0.5 : 0.9 },
+      candidates: [{ clothesId: item.clothesId, score: scores[i] ?? 50, reasons: [`${colorLabels[item.color]}が一致`], name: item.name ?? null, category: item.category, color: item.color, subCategory: null, imageKey: null, imageUrl: item.imageUrl ?? null }],
+      status: i === 2 ? "low_confidence" : "candidates_found",
+    })),
+  };
+}
+
 export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegister: () => void }) {
   const [step, setStep] = useState<Step>("camera");
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [photoUrl, setPhotoUrl] = useState("");
   const [selfieKey, setSelfieKey] = useState<string | undefined>();
   const [closet, setCloset] = useState<ClosetItem[]>([]);
-  const [suggested, setSuggested] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [analysisError, setAnalysisError] = useState<AnalysisError>(null);
+  const [picks, setPicks] = useState<Record<string, Pick | null>>({});
+  const [manualPicks, setManualPicks] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -45,34 +77,41 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
     return () => URL.revokeObjectURL(url);
   }, [photo]);
 
+  const applyAnalysis = (a: Analysis) => {
+    setAnalysis(a); setAnalysisError(null);
+    const taken = new Set<string>(), initial: Record<string, Pick | null> = {};
+    for (const s of a.slots) {
+      const top = s.candidates[0];
+      initial[s.slotId] = s.status === "candidates_found" && top && top.score >= PRESELECT_MIN_SCORE && !taken.has(top.clothesId)
+        ? (taken.add(top.clothesId), { clothesId: top.clothesId, score: top.score, rank: 1, reasons: top.reasons }) : null;
+    }
+    setPicks(initial);
+  };
+
+  const analyze = async (key: string) => {
+    try {
+      const r = await apiFetch("/api/analyze-outfit", { method: "POST", body: JSON.stringify({ selfieKey: key, topK: 5, date: localDate() }) });
+      if (r.ok) applyAnalysis(r);
+      else { setAnalysis(null); setAnalysisError(r.error === "image_not_usable" ? "image_not_usable" : "analysis_failed"); }
+    } catch { setAnalysis(null); setAnalysisError("analysis_failed"); }
+  };
+
   const usePhoto = async () => {
     if (!photo) return;
     setError(""); setStep("analyzing");
     try {
-      let key: string | undefined;
-      let items: ClosetItem[];
-      let candidateIds: string[] = [];
       if (DEMO_MODE) {
         await new Promise(r => setTimeout(r, 800));
-        items = demoItems.map(i => ({ clothesId: i.id, name: i.name, category: i.category, color: i.color, image: i.image }));
+        const items = demoItems.map(i => ({ clothesId: i.id, name: i.name, category: i.category, color: i.color, imageUrl: i.image }));
+        setCloset(items); setSelfieKey(undefined); applyAnalysis(demoAnalysis(items));
       } else {
-        key = await uploadImage("selfies", photo);
-        const [clothes, analysis] = await Promise.all([
-          apiFetch("/api/clothes"),
-          apiFetch("/api/analyze", { method: "POST", body: JSON.stringify({ selfieKey: key, topK: 3 }) }).catch(() => null),
-        ]);
+        const key = await uploadImage("selfies", photo);
+        setSelfieKey(key);
+        const [clothes] = await Promise.all([apiFetch("/api/clothes"), analyze(key)]);
         if (!clothes.ok) throw new Error(clothes.error);
-        items = clothes.items;
-        // AI 候補は「各検出服のトップ候補」を初期選択にする。確定はユーザーが行う。
-        for (const r of analysis?.ok ? analysis.results ?? [] : []) {
-          if (!r.needsRegister && r.candidates?.[0]) candidateIds.push(r.candidates[0].clothesId);
-        }
-        candidateIds = candidateIds.filter(id => items.some(i => i.clothesId === id));
+        setCloset(clothes.items);
       }
-      setSelfieKey(key);
-      setCloset(items);
-      setSuggested(new Set(candidateIds));
-      setSelected(new Set(candidateIds));
+      setManualPicks([]);
       setStep("select");
     } catch {
       setError("写真のアップロードに失敗しました。通信状況を確認してもう一度お試しください。");
@@ -80,12 +119,26 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
     }
   };
 
+  const reanalyze = async () => {
+    if (!selfieKey) return;
+    setStep("analyzing"); await analyze(selfieKey); setStep("select");
+  };
+
+  const chosenIds = [...Object.values(picks).flatMap(p => (p ? [p.clothesId] : [])), ...manualPicks];
+  const takenBy = (clothesId: string, exceptSlot: string) =>
+    Object.entries(picks).some(([slot, p]) => slot !== exceptSlot && p?.clothesId === clothesId) || (exceptSlot !== MANUAL && manualPicks.includes(clothesId));
+
   const save = async () => {
     setError(""); setStep("saving");
     try {
       if (DEMO_MODE) await new Promise(r => setTimeout(r, 600));
       else {
-        const r = await apiFetch("/api/logs", { method: "POST", body: JSON.stringify({ date: localDate(), selfieKey, clothesIds: [...selected] }) });
+        const items = [
+          ...Object.entries(picks).flatMap(([slot, p]) => (p ? [{ ...p, slot }] : [])),
+          ...manualPicks.map(clothesId => ({ clothesId, slot: MANUAL })),
+        ];
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const r = await apiFetch("/api/logs", { method: "POST", body: JSON.stringify({ date: localDate(), timezone, selfieKey, analysisVersion: analysis?.analysisVersion, clothesIds: items.map(i => i.clothesId), items }) });
         if (!r.ok) throw new Error(r.error);
       }
       setStep("done");
@@ -94,8 +147,6 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
       setStep("select");
     }
   };
-
-  const toggle = (id: string) => setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   return <div className="outfit-flow">
     <button className="flow-close" onClick={close} aria-label="閉じる"><X size={20} /></button>
@@ -108,29 +159,78 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
         <button className="save" onClick={usePhoto}>この写真を使う</button>
       </div>
     </section>}
-    {step === "analyzing" && <section className="flow-center"><div className="spinner" /><p>写真を解析しています…</p></section>}
+    {step === "analyzing" && <section className="flow-center"><div className="spinner" /><p>写真から服を探しています…</p></section>}
     {(step === "select" || step === "saving") && <section className="flow-select">
       <div className="flow-select-head">
         {photoUrl && <img src={photoUrl} alt="今日の写真" />}
-        <div><p className="eyebrow">TODAY · {localDate()}</p><h2>今日着ている服を選ぶ</h2><p className="muted">{suggested.size ? "AI の候補を選択済みです。違っていたら変更してください。" : "クローゼットから今日着ている服を選んでください。"}</p></div>
+        <div><p className="eyebrow">TODAY · {localDate()}</p><h2>今日着ている服</h2><p className="muted">AI の候補は仮の選択です。違っていたら変更してください。</p></div>
       </div>
-      {closet.length === 0
-        ? <div className="flow-empty"><p>クローゼットに服がまだありません。</p><button className="save" onClick={onRegister}>服を登録する</button></div>
-        : <div className="flow-grid">{closet.map(item => {
-            const on = selected.has(item.clothesId);
-            return <button key={item.clothesId} className={on ? "pick on" : "pick"} onClick={() => toggle(item.clothesId)} aria-pressed={on}>
-              {item.image ? <img src={item.image} alt="" /> : <span className="pick-ph">{categoryLabels[item.category]}</span>}
-              {suggested.has(item.clothesId) && <em>AI候補</em>}
-              {on && <i><Check size={14} /></i>}
-              <p>{item.name || `${colorLabels[item.color]}の${categoryLabels[item.category]}`}</p>
-              <small>{categoryLabels[item.category]} · {colorLabels[item.color]}</small>
-            </button>;
-          })}</div>}
+      {analysisError && <div className="flow-banner">
+        <p>{analysisError === "image_not_usable" ? "写真から服を見つけられませんでした。服全体が明るく写るように撮り直すか、手動で選んでください。" : "解析に失敗しました。もう一度解析するか、手動で選んでください。"}</p>
+        <div><button onClick={() => { setPhoto(null); setStep("camera"); }}>撮り直す</button>{analysisError === "analysis_failed" && <button onClick={reanalyze}>再解析</button>}</div>
+      </div>}
+      {closet.length === 0 && <div className="flow-banner"><p>クローゼットに服がまだありません。写真だけ保存するか、服を登録してください。</p><div><button onClick={onRegister}>服を登録する</button></div></div>}
+      {analysis?.slots.map(slot => <SlotSection key={slot.slotId} slot={slot} closet={closet} pick={picks[slot.slotId] ?? null}
+        isTaken={id => takenBy(id, slot.slotId)} onPick={p => setPicks(prev => ({ ...prev, [slot.slotId]: p }))} onRegister={onRegister} />)}
+      {closet.length > 0 && <ManualSection closet={closet} picked={manualPicks} isTaken={id => takenBy(id, MANUAL)} open={!analysis}
+        toggle={id => setManualPicks(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))} />}
       {error && <p className="flow-error">{error}</p>}
-      <div className="flow-footer"><button className="save" disabled={selected.size === 0 || step === "saving"} onClick={save}>{step === "saving" ? "保存中…" : `${selected.size}着を記録する`}</button></div>
+      <div className="flow-footer"><button className="save" disabled={step === "saving"} onClick={save}>{step === "saving" ? "保存中…" : chosenIds.length ? `${chosenIds.length}着を記録する` : "写真だけ保存する"}</button></div>
     </section>}
     {step === "done" && <section className="flow-center"><div className="done-mark"><Check size={30} /></div><h2>今日の服を記録しました</h2><button className="save" onClick={close}>ホームに戻る</button></section>}
   </div>;
+}
+
+function ItemCard({ item, on, disabled, badge, onClick }: { item: { name?: string | null; category: ClosetItem["category"]; color: ClosetItem["color"]; imageUrl?: string | null }; on: boolean; disabled?: boolean; badge?: string; onClick: () => void }) {
+  return <button className={on ? "pick on" : "pick"} onClick={onClick} disabled={disabled} aria-pressed={on}>
+    {item.imageUrl ? <img src={item.imageUrl} alt="" /> : <span className="pick-ph">{categoryLabels[item.category]}</span>}
+    {badge && <em>{badge}</em>}
+    {on && <i><Check size={14} /></i>}
+    <p>{item.name || `${colorLabels[item.color]}の${categoryLabels[item.category]}`}</p>
+    <small>{disabled ? "他の枠で選択中" : `${categoryLabels[item.category]} · ${colorLabels[item.color]}`}</small>
+  </button>;
+}
+
+function SlotSection({ slot, closet, pick, isTaken, onPick, onRegister }: { slot: OutfitSlot; closet: ClosetItem[]; pick: Pick | null; isTaken: (id: string) => boolean; onPick: (p: Pick | null) => void; onRegister: () => void }) {
+  const [browse, setBrowse] = useState(false);
+  const shown = slot.candidates.slice(0, 3);
+  const others = closet.filter(i => i.category === slot.detected.category && !shown.some(c => c.clothesId === i.clothesId)).slice(0, 20);
+  const select = (p: Pick) => onPick(pick?.clothesId === p.clothesId ? null : p);
+  const summary = detectedSummary(slot.detected);
+  return <section className="slot">
+    <div className="slot-head"><h3>{categoryLabels[slot.detected.category]}</h3>{summary && <span>{summary}</span>}</div>
+    {statusNotes[slot.status] && <p className="slot-note">{statusNotes[slot.status]}</p>}
+    {shown.length > 0 && <div className="slot-row">{shown.map((c, i) =>
+      <div key={c.clothesId} className="slot-cand">
+        <ItemCard item={c} on={pick?.clothesId === c.clothesId} disabled={isTaken(c.clothesId)} badge={`${c.score}%`} onClick={() => select({ clothesId: c.clothesId, score: c.score, rank: i + 1, reasons: c.reasons })} />
+        {c.reasons.length > 0 && <p className="reasons">{c.reasons.slice(0, 2).join("・")}</p>}
+      </div>)}</div>}
+    {browse && <div className="slot-row wrap">{others.length ? others.map(i =>
+      <ItemCard key={i.clothesId} item={i} on={pick?.clothesId === i.clothesId} disabled={isTaken(i.clothesId)} onClick={() => {
+        const rank = slot.candidates.findIndex(c => c.clothesId === i.clothesId);
+        const c = slot.candidates[rank];
+        select(c ? { clothesId: i.clothesId, score: c.score, rank: rank + 1, reasons: c.reasons } : { clothesId: i.clothesId });
+      }} />) : <p className="muted">同じカテゴリの服は他にありません。</p>}</div>}
+    <div className="slot-actions">
+      {others.length > 0 && <button onClick={() => setBrowse(!browse)}>{browse ? "閉じる" : "他の服を探す"}</button>}
+      <button onClick={onRegister}>この服を新規登録</button>
+      <button className={pick ? "" : "on"} onClick={() => onPick(null)}>{pick ? "今回は記録しない" : "記録しない"}</button>
+    </div>
+  </section>;
+}
+
+function ManualSection({ closet, picked, isTaken, toggle, open }: { closet: ClosetItem[]; picked: string[]; isTaken: (id: string) => boolean; toggle: (id: string) => void; open: boolean }) {
+  const [expanded, setExpanded] = useState(open);
+  const [category, setCategory] = useState<ClosetItem["category"] | "all">("all");
+  const list = closet.filter(i => category === "all" || i.category === category);
+  return <section className="slot">
+    <div className="slot-head"><h3>{open ? "クローゼットから選ぶ" : "写っていない服を追加"}</h3>{picked.length > 0 && <span>{picked.length}着選択中</span>}</div>
+    {!expanded ? <div className="slot-actions"><button onClick={() => setExpanded(true)}>クローゼットから手動で選ぶ</button></div> : <>
+      <div className="chips">{(["all", ...Object.keys(categoryLabels)] as const).map(c =>
+        <button key={c} className={category === c ? "on" : ""} onClick={() => setCategory(c as typeof category)}>{c === "all" ? "すべて" : categoryLabels[c as ClosetItem["category"]]}</button>)}</div>
+      <div className="slot-row wrap">{list.map(i => <ItemCard key={i.clothesId} item={i} on={picked.includes(i.clothesId)} disabled={isTaken(i.clothesId)} onClick={() => toggle(i.clothesId)} />)}</div>
+    </>}
+  </section>;
 }
 
 function CameraView({ onCapture }: { onCapture: (b: Blob) => void }) {
