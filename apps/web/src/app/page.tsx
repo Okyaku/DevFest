@@ -4,20 +4,7 @@ import { Camera, CalendarDays, ChartNoAxesColumn, ChevronLeft, MapPin, Plus, Set
 import { categoryLabels, colorLabels, prefectures, type ClothesInput, type ProfileInput } from "@ai-closet/shared";
 import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080").replace(/\/+$/, "");
-function waitForUser(): Promise<User> {
-  if (auth.currentUser) return Promise.resolve(auth.currentUser);
-  return new Promise((resolve, reject) => {
-    const unsub = onAuthStateChanged(auth, u => { unsub(); u ? resolve(u) : reject(new Error("Not authenticated")); });
-  });
-}
-async function apiFetch(path: string, opts: RequestInit = {}) {
-  const user = await waitForUser();
-  const token = await user.getIdToken();
-  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });
-  return res.json();
-}
+import { apiFetch } from "@/lib/api";
 
 const demoItems = [
   { id: "1", name: "白いTシャツ", category: "tops", color: "white", image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=600&q=80" },
