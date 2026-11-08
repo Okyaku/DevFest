@@ -5,13 +5,16 @@ export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localho
 export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 function waitForUser(): Promise<User> {
-  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+  if (!auth) return Promise.reject(new Error("Firebase auth is not configured"));
+  const a = auth;
+  if (a.currentUser) return Promise.resolve(a.currentUser);
   return new Promise((resolve, reject) => {
-    const unsub = onAuthStateChanged(auth, u => { unsub(); u ? resolve(u) : reject(new Error("Not authenticated")); });
+    const unsub = onAuthStateChanged(a, u => { unsub(); u ? resolve(u) : reject(new Error("Not authenticated")); });
   });
 }
 
 export async function apiFetch(path: string, opts: RequestInit = {}) {
+  if (DEMO_MODE || !auth) return { ok: false, error: "demo mode" };
   const user = await waitForUser();
   const token = await user.getIdToken();
   const res = await fetch(`${API_BASE}${path}`, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });

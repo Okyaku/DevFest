@@ -8,11 +8,18 @@ const TIMEOUT_MS = Number(process.env.VERTEX_AI_TIMEOUT_MS ?? 25_000);
 
 let client: GoogleGenAI | null = null;
 function getClient() {
-  client ??= new GoogleGenAI({
-    vertexai: true,
-    project: process.env.GOOGLE_CLOUD_PROJECT ?? process.env.FIREBASE_PROJECT_ID,
-    location: process.env.VERTEX_AI_LOCATION ?? "us-central1",
-  });
+  if (!client) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      client = new GoogleGenAI({ apiKey });
+    } else {
+      client = new GoogleGenAI({
+        vertexai: true,
+        project: process.env.GOOGLE_CLOUD_PROJECT ?? process.env.FIREBASE_PROJECT_ID,
+        location: process.env.VERTEX_AI_LOCATION ?? "us-central1",
+      });
+    }
+  }
   return client;
 }
 

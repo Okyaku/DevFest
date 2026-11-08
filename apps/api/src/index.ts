@@ -9,6 +9,9 @@ import { analyzeInputSchema, analyzeItemInputSchema, analyzeOutfitInputSchema, c
 import { analyzeItem, ANALYSIS_VERSION, buildOutfitSlots, detectOutfit, ImageNotUsableError } from "./ai/analyze.js";
 import type { ClosetRow } from "./ai/matching.js";
 import { AiError } from "./ai/model.js";
+import { suggestOutfit, type WeatherInfo, type ClothesForSuggestion } from "./ai/suggest.js";
+import { chat, type ChatMessage, type ClosetContext } from "./ai/chat.js";
+import { tryOn, type TryOnInput } from "./ai/tryon.js";
 
 const app = new Hono<{ Variables: { uid: string } }>();
 const bucketName = process.env.GCS_BUCKET;
@@ -99,5 +102,95 @@ app.post("/api/analyze-item", async c=>{
 app.post("/api/analyze-outfit", async c=>{ const {selfieKey,topK,date}=analyzeOutfitInputSchema.parse(await c.req.json()); const r=await runOutfitAnalysis(c.get("uid"),selfieKey,topK,date); return c.json(r.body,r.status); });
 /** 互換用。内部で analyze-outfit を呼び、旧形式 { results: [{ detected, candidates, bestScore, needsRegister }] } に変換する */
 app.post("/api/analyze", async c=>{ const {selfieKey,topK}=analyzeInputSchema.parse(await c.req.json()); const r=await runOutfitAnalysis(c.get("uid"),selfieKey,topK); if(!r.body.ok) return c.json(r.body,r.status); return c.json({ok:true,results:r.body.slots.map(s=>({detected:s.detected,candidates:s.candidates,bestScore:s.candidates[0]?.score??0,needsRegister:s.status!=="candidates_found"}))}); });
+// ---- 天気ベースの服提案 ----
+app.post("/api/suggest-outfit", async c => {
+  const uid = c.get("uid");
+  const { weather, prefecture } = await c.req.json() as { weather: WeatherInfo; prefecture: string };
+  if (!weather || !prefecture) return c.json({ ok: false, error: "weather and prefecture are required" }, 400);
+  const { rows } = await db.query(
+    `SELECT id AS "clothesId", category, sub_category AS "subCategory", color, seasons AS season, name
+     FROM clothes WHERE user_id=$1 AND deleted_at IS NULL`, [uid]
+  );
+  const clothes: ClothesForSuggestion[] = rows.map((r: { clothesId: string; category: string; subCategory: string | null; color: string; season: string[]; name: string | null }) => ({
+    ...r, season: Array.isArray(r.season) ? r.season : [],
+  }));
+  try {
+    const result = await suggestOutfit(weather, clothes, prefecture);
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    console.error("suggest-outfit error", e);
+    return c.json({ ok: false, error: "suggestion_failed" }, 502);
+  }
+});
+
+// ---- AIチャット ----
+app.post("/api/chat", async c => {
+  const uid = c.get("uid");
+  const { messages } = await c.req.json() as { messages: ChatMessage[] };
+  if (!Array.isArray(messages) || messages.length === 0) return c.json({ ok: false, error: "messages required" }, 400);
+
+  const { rows: clothesRows } = await db.query(
+    `SELECT category, sub_category AS "subCategory", color, seasons AS season, name
+     FROM clothes WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100`, [uid]
+  );
+  const { rows: logRows } = await db.query(
+    `SELECT wl.local_date AS date, array_agg(c.name) AS items
+     FROM wear_logs wl JOIN wear_log_items wli ON wli.wear_log_id=wl.id JOIN clothes c ON c.id=wli.clothes_id
+     WHERE wl.user_id=$1 GROUP BY wl.local_date ORDER BY wl.local_date DESC LIMIT 5`, [uid]
+  );
+  const { rows: [profileRow] } = await db.query(
+    "SELECT age, prefecture FROM users WHERE id=$1", [uid]
+  );
+
+  const ctx: ClosetContext = {
+    clothes: clothesRows.map((r: { category: string; subCategory: string | null; color: string; season: string[]; name: string | null }) => ({
+      ...r, season: Array.isArray(r.season) ? r.season : [],
+    })),
+    recentOutfits: logRows.map((r: { date: string; items: string[] }) => r),
+    profile: profileRow ?? {},
+  };
+
+  try {
+    const reply = await chat(messages, ctx);
+    return c.json({ ok: true, reply });
+  } catch (e) {
+    console.error("chat error", e);
+    return c.json({ ok: false, error: "chat_failed", message: e instanceof Error ? e.message : "unknown" }, 502);
+  }
+});
+
+// ---- バーチャル試着 ----
+app.post("/api/try-on", async c => {
+  const uid = c.get("uid");
+  const { bodyKey, clothesIds } = await c.req.json() as { bodyKey: string; clothesIds: string[] };
+  if (!bodyKey || !Array.isArray(clothesIds) || clothesIds.length === 0) return c.json({ ok: false, error: "bodyKey and clothesIds are required" }, 400);
+  if (!ownsKey(uid, bodyKey, ["selfies"])) return c.json({ ok: false, error: "Forbidden" }, 403);
+
+  const { rows } = await db.query(
+    `SELECT id AS "clothesId", image_key AS "imageKey", name, category, color
+     FROM clothes WHERE id = ANY($1) AND user_id=$2 AND deleted_at IS NULL`,
+    [clothesIds, uid]
+  );
+  if (rows.length === 0) return c.json({ ok: false, error: "No clothes found" }, 404);
+
+  try {
+    const bodyImage = await loadUserImage(bodyKey);
+    const clothesImages = await Promise.all(
+      rows.filter((r: { imageKey: string | null }) => r.imageKey).map(async (r: { imageKey: string; name: string | null; category: string; color: string }) => {
+        const img = await loadUserImage(r.imageKey);
+        return { ...img, description: r.name ?? `${r.color}の${r.category}` };
+      })
+    );
+
+    if (clothesImages.length === 0) return c.json({ ok: false, error: "No clothes images available" }, 422);
+
+    const result = await tryOn({ bodyImage, clothesImages });
+    return c.json({ ok: true, image: `data:${result.mimeType};base64,${result.imageBase64}` });
+  } catch (e) {
+    console.error("try-on error", e);
+    return c.json({ ok: false, error: "try_on_failed", message: e instanceof Error ? e.message : "unknown" }, 502);
+  }
+});
+
 app.onError((err,c)=>{ console.error(err); return c.json({ok:false,error:"Request could not be completed"},400); });
 serve({fetch:app.fetch,port:Number(process.env.PORT??8080)});

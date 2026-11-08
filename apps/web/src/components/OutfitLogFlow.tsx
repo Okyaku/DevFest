@@ -90,9 +90,21 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
 
   const analyze = async (key: string) => {
     try {
-      const r = await apiFetch("/api/analyze-outfit", { method: "POST", body: JSON.stringify({ selfieKey: key, topK: 5, date: localDate() }) });
-      if (r.ok) applyAnalysis(r);
-      else { setAnalysis(null); setAnalysisError(r.error === "image_not_usable" ? "image_not_usable" : "analysis_failed"); }
+      let r = await apiFetch("/api/analyze-outfit", { method: "POST", body: JSON.stringify({ selfieKey: key, topK: 5, date: localDate() }) });
+      if (r.ok) { applyAnalysis(r); return; }
+      if (r.error === "image_not_usable") { setAnalysis(null); setAnalysisError("image_not_usable"); return; }
+      const legacy = await apiFetch("/api/analyze", { method: "POST", body: JSON.stringify({ selfieKey: key, topK: 5 }) });
+      if (legacy.ok && legacy.results) {
+        const slots: OutfitSlot[] = legacy.results.map((res: { detected: OutfitSlot["detected"]; candidates: OutfitSlot["candidates"]; needsRegister?: boolean }, i: number) => ({
+          slotId: `${res.detected.category}:${i}`,
+          detected: res.detected,
+          candidates: res.candidates ?? [],
+          status: res.needsRegister ? "no_candidates" as const : res.candidates?.length ? "candidates_found" as const : "no_candidates" as const,
+        }));
+        applyAnalysis({ analysisVersion: legacy.analysisVersion, slots });
+      } else {
+        setAnalysis(null); setAnalysisError(legacy.error === "image_not_usable" ? "image_not_usable" : "analysis_failed");
+      }
     } catch { setAnalysis(null); setAnalysisError("analysis_failed"); }
   };
 
@@ -105,16 +117,25 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
         const items = demoItems.map(i => ({ clothesId: i.id, name: i.name, category: i.category, color: i.color, imageUrl: i.image }));
         setCloset(items); setSelfieKey(undefined); applyAnalysis(demoAnalysis(items));
       } else {
-        const key = await uploadImage("selfies", photo);
-        setSelfieKey(key);
-        const [clothes] = await Promise.all([apiFetch("/api/clothes"), analyze(key)]);
+        const clothes = await apiFetch("/api/clothes");
         if (!clothes.ok) throw new Error(clothes.error);
         setCloset(clothes.items);
+
+        try {
+          const key = await uploadImage("selfies", photo);
+          setSelfieKey(key);
+          await analyze(key);
+        } catch {
+          setSelfieKey(undefined);
+          setAnalysis(null);
+          setAnalysisError("analysis_failed");
+          setError("写真のアップロードまたは解析に失敗したため、手動選択モードに切り替えました。");
+        }
       }
       setManualPicks([]);
       setStep("select");
     } catch {
-      setError("写真のアップロードに失敗しました。通信状況を確認してもう一度お試しください。");
+      setError("クローゼットの読み込みに失敗しました。通信状況を確認してもう一度お試しください。");
       setStep("preview");
     }
   };
@@ -152,7 +173,7 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
     <button className="flow-close" onClick={close} aria-label="閉じる"><X size={20} /></button>
     {step === "camera" && <CameraView onCapture={b => { setPhoto(b); setStep("preview"); }} />}
     {step === "preview" && <section className="flow-preview">
-      <img src={photoUrl} alt="撮影した写真" />
+      {photoUrl ? <img src={photoUrl} alt="撮影した写真" /> : <div className="spinner" />}
       {error && <p className="flow-error">{error}</p>}
       <div className="flow-actions">
         <button className="ghost" onClick={() => { setPhoto(null); setStep("camera"); }}><RefreshCw size={16} />撮り直す</button>
@@ -167,7 +188,7 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
       </div>
       {analysisError && <div className="flow-banner">
         <p>{analysisError === "image_not_usable" ? "写真から服を見つけられませんでした。服全体が明るく写るように撮り直すか、手動で選んでください。" : "解析に失敗しました。もう一度解析するか、手動で選んでください。"}</p>
-        <div><button onClick={() => { setPhoto(null); setStep("camera"); }}>撮り直す</button>{analysisError === "analysis_failed" && <button onClick={reanalyze}>再解析</button>}</div>
+        <div><button onClick={() => { setPhoto(null); setStep("camera"); }}>撮り直す</button>{analysisError === "analysis_failed" && selfieKey && <button onClick={reanalyze}>再解析</button>}</div>
       </div>}
       {closet.length === 0 && <div className="flow-banner"><p>クローゼットに服がまだありません。写真だけ保存するか、服を登録してください。</p><div><button onClick={onRegister}>服を登録する</button></div></div>}
       {analysis?.slots.map(slot => <SlotSection key={slot.slotId} slot={slot} closet={closet} pick={picks[slot.slotId] ?? null}
