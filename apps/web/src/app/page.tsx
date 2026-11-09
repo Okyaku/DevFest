@@ -62,6 +62,8 @@ function ClosetApp() {
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [tryOnOpen, setTryOnOpen] = useState(false);
+  const [openCats, setOpenCats] = useState<Set<string>>(new Set());
+  const toggleCat = (cat: string) => setOpenCats(prev => { const next = new Set(prev); next.has(cat) ? next.delete(cat) : next.add(cat); return next; });
   const [calMonth, setCalMonth] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -153,17 +155,29 @@ function ClosetApp() {
       <div className="section-head"><h2>あなたの服 <span>{clothes.length}</span></h2></div>
       {clothes.length === 0
         ? <section className="closet-empty"><p className="muted">クローゼットに服がまだありません。<br />右下のボタンから登録してください。</p></section>
-        : <section className="closet">{clothes.map(item =>
-            <article key={item.clothesId} className="garment">
-              {item.imageUrl
-                ? <img src={item.imageUrl} alt={item.name ?? ""} />
-                : <div className="garment-ph">{categoryLabels[item.category as keyof typeof categoryLabels] ?? item.category}</div>}
-              <div>
-                <p>{item.name || `${colorLabels[item.color as keyof typeof colorLabels] ?? item.color}の${categoryLabels[item.category as keyof typeof categoryLabels] ?? item.category}`}</p>
-                <small>{categoryLabels[item.category as keyof typeof categoryLabels] ?? item.category} · {colorLabels[item.color as keyof typeof colorLabels] ?? item.color}</small>
-              </div>
-            </article>
-          )}</section>}
+        : <section className="closet-accordion">{Object.entries(categoryLabels).map(([cat, label]) => {
+            const items = clothes.filter(c => c.category === cat);
+            if (items.length === 0) return null;
+            const isOpen = openCats.has(cat);
+            return <div key={cat} className="cat-group">
+              <button className={isOpen ? "cat-header open" : "cat-header"} onClick={() => toggleCat(cat)}>
+                <span className="cat-header-label">{label}</span>
+                <span className="cat-header-count">{items.length}</span>
+                <ChevronRight size={16} className="cat-chevron" />
+              </button>
+              {isOpen && <div className="cat-items">{items.map(item =>
+                <article key={item.clothesId} className="garment">
+                  {item.imageUrl
+                    ? <img src={item.imageUrl} alt={item.name ?? ""} />
+                    : <div className="garment-ph">{categoryLabels[item.category as keyof typeof categoryLabels] ?? item.category}</div>}
+                  <div>
+                    <p>{item.name || `${colorLabels[item.color as keyof typeof colorLabels] ?? item.color}の${categoryLabels[item.category as keyof typeof categoryLabels] ?? item.category}`}</p>
+                    <small>{colorLabels[item.color as keyof typeof colorLabels] ?? item.color}</small>
+                  </div>
+                </article>
+              )}</div>}
+            </div>;
+          })}</section>}
     </>}
 
     {tab === "calendar" && !showMyPage && <CalendarView logs={logs} month={calMonth} onChangeMonth={setCalMonth} clothes={clothes} />}
