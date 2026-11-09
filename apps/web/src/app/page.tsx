@@ -83,7 +83,7 @@ function ClosetApp() {
     const to = `${year}-${pad(month)}-${pad(lastDay)}`;
     try {
       const r = await apiFetch(`/api/logs?from=${from}&to=${to}`);
-      if (r.ok) setLogs(r.items);
+      if (r.ok) setLogs(r.items.map((item: LogItem) => ({ ...item, date: String(item.date).slice(0, 10) })));
     } catch {}
   }, []);
 
@@ -180,7 +180,9 @@ function ClosetApp() {
           })}</section>}
     </>}
 
-    {tab === "calendar" && !showMyPage && <CalendarView logs={logs} month={calMonth} onChangeMonth={setCalMonth} clothes={clothes} />}
+    {tab === "calendar" && !showMyPage && <CalendarView logs={logs} month={calMonth} onChangeMonth={setCalMonth} clothes={clothes} onDeleteLog={async (logIds) => {
+      try { await Promise.all(logIds.map(id => apiFetch(`/api/logs/${id}`, { method: "DELETE" }))); } finally { await fetchLogs(calMonth.year, calMonth.month); }
+    }} />}
     {tab === "stats" && !showMyPage && <StatsView logs={logs} clothes={clothes} month={calMonth} />}
     {tab === "settings" && !showMyPage && <SettingsView logout={() => { if (auth) signOut(auth); }} profile={profile} onEditProfile={() => setShowMyPage(true)} />}
     {showMyPage && <MyPageView profile={profile} onSave={saveProfile} />}
@@ -195,8 +197,8 @@ function ClosetApp() {
       <button className="fab" onClick={() => setMenu(!menu)} aria-label="撮影メニュー"><Camera /></button>
     </>}
 
+    {logFlow && <OutfitLogFlow close={() => { setLogFlow(false); fetchLogs(calMonth.year, calMonth.month); setTab("calendar"); }} onRegister={() => { setForm(true); }} parentClothes={clothes} />}
     {form && <ClothesForm close={() => setForm(false)} onSaved={fetchClothes} />}
-    {logFlow && <OutfitLogFlow close={() => { setLogFlow(false); fetchLogs(calMonth.year, calMonth.month); setTab("calendar"); }} onRegister={() => { setLogFlow(false); setForm(true); }} />}
 
     {!form && !logFlow && !chatOpen && <button className="chat-fab" onClick={() => setChatOpen(true)} aria-label="AIに相談"><MessageCircle size={22} /></button>}
     {chatOpen && <ChatView onClose={() => setChatOpen(false)} />}
@@ -208,17 +210,31 @@ function ClosetApp() {
   </main>;
 }
 
-function CalendarView({ logs, month, onChangeMonth, clothes }: {
+function CalendarView({ logs, month, onChangeMonth, clothes, onDeleteLog }: {
   logs: LogItem[]; month: { year: number; month: number };
   onChangeMonth: (m: { year: number; month: number }) => void; clothes: ClothesItem[];
+  onDeleteLog?: (logIds: string[]) => Promise<void>;
 }) {
   const pad = (n: number) => String(n).padStart(2, "0");
   const todayStr = useMemo(() => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }, []);
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, { logIds: string[]; clothesIds: string[] }>();
+    for (const l of logs) {
+      const entry = map.get(l.date) ?? { logIds: [], clothesIds: [] };
+      entry.logIds.push(l.logId);
+      for (const cid of l.clothesIds) if (!entry.clothesIds.includes(cid)) entry.clothesIds.push(cid);
+      map.set(l.date, entry);
+    }
+    return map;
+  }, [logs]);
+
+  const uniqueDates = useMemo(() => [...byDate.keys()].sort(), [byDate]);
+
   const defaultDate = useMemo(() => {
-    if (logs.find(l => l.date === todayStr)) return todayStr;
-    const sorted = [...logs].sort((a, b) => b.date.localeCompare(a.date));
-    return sorted[0]?.date ?? null;
-  }, [logs, todayStr]);
+    if (byDate.has(todayStr)) return todayStr;
+    return uniqueDates[uniqueDates.length - 1] ?? null;
+  }, [byDate, uniqueDates, todayStr]);
   const [selectedDate, setSelectedDate] = useState<string | null>(defaultDate);
   useEffect(() => { setSelectedDate(prev => prev ?? defaultDate); }, [defaultDate]);
 
@@ -228,8 +244,8 @@ function CalendarView({ logs, month, onChangeMonth, clothes }: {
   const prevMonth = () => { setSelectedDate(null); onChangeMonth(month.month === 1 ? { year: month.year - 1, month: 12 } : { year: month.year, month: month.month - 1 }); };
   const nextMonth = () => { setSelectedDate(null); onChangeMonth(month.month === 12 ? { year: month.year + 1, month: 1 } : { year: month.year, month: month.month + 1 }); };
 
-  const selectedLog = selectedDate ? logs.find(l => l.date === selectedDate) : null;
-  const selectedClothes = selectedLog ? clothes.filter(c => selectedLog.clothesIds.includes(c.clothesId)) : [];
+  const selectedEntry = selectedDate ? byDate.get(selectedDate) : null;
+  const selectedClothes = selectedEntry ? selectedEntry.clothesIds.map(cid => clothes.find(c => c.clothesId === cid)).filter(Boolean) as ClothesItem[] : [];
 
   return <section className="calendar">
     <div className="month-nav">
@@ -243,10 +259,10 @@ function CalendarView({ logs, month, onChangeMonth, clothes }: {
       {Array.from({ length: daysInMonth }, (_, i) => {
         const day = i + 1;
         const dateStr = `${month.year}-${pad(month.month)}-${pad(day)}`;
-        const dayLog = logs.find(l => l.date === dateStr);
-        const logged = !!dayLog;
+        const entry = byDate.get(dateStr);
+        const logged = !!entry;
         const selected = selectedDate === dateStr;
-        const dayClothes = dayLog ? dayLog.clothesIds.map(cid => clothes.find(c => c.clothesId === cid)).filter(Boolean).slice(0, 3) : [];
+        const dayClothes = entry ? entry.clothesIds.map(cid => clothes.find(c => c.clothesId === cid)).filter(Boolean).slice(0, 3) : [];
         return <button key={day}
           className={[logged && "logged", selected && "selected"].filter(Boolean).join(" ")}
           onClick={() => setSelectedDate(selected ? null : dateStr)}>
@@ -259,8 +275,10 @@ function CalendarView({ logs, month, onChangeMonth, clothes }: {
         </button>;
       })}
     </div>
-    {selectedLog ? <div className="log-detail">
-      <h2>{selectedDate} のコーデ</h2>
+    {selectedEntry ? <div className="log-detail">
+      <div className="log-detail-head"><h2>{selectedDate} のコーデ</h2>
+        {onDeleteLog && <button className="log-delete" onClick={async () => { if (confirm("この日の記録を削除しますか？")) { await onDeleteLog(selectedEntry.logIds); setSelectedDate(null); } }}>削除</button>}
+      </div>
       {selectedClothes.length > 0
         ? <div className="log-clothes">{selectedClothes.map(c =>
             <article key={c.clothesId} className="garment">
@@ -276,13 +294,14 @@ function CalendarView({ logs, month, onChangeMonth, clothes }: {
         : <p className="muted">この日は写真だけの記録です。</p>}
     </div> : <div className="log-detail">
       <h2>{month.month}月の記録</h2>
-      {logs.length > 0
+      {uniqueDates.length > 0
         ? <>
-          <p className="muted">{logs.length}日着用を記録しました。日付をタップすると詳細を見れます。</p>
-          <div className="log-list">{[...logs].sort((a, b) => a.date.localeCompare(b.date)).map(log => {
-            const logClothes = log.clothesIds.map(cid => clothes.find(c => c.clothesId === cid)).filter(Boolean);
-            return <button key={log.logId} className="log-list-item" onClick={() => setSelectedDate(log.date)}>
-              <span className="log-list-date">{log.date.slice(5)}</span>
+          <p className="muted">{uniqueDates.length}日着用を記録しました。日付をタップすると詳細を見れます。</p>
+          <div className="log-list">{uniqueDates.map(date => {
+            const entry = byDate.get(date)!;
+            const logClothes = entry.clothesIds.map(cid => clothes.find(c => c.clothesId === cid)).filter(Boolean);
+            return <button key={date} className="log-list-item" onClick={() => setSelectedDate(date)}>
+              <span className="log-list-date">{date.slice(5)}</span>
               <span className="log-list-clothes">{logClothes.map((c, i) =>
                 c?.imageUrl ? <img key={i} src={c.imageUrl} alt="" /> : <i key={i} className="log-list-ph">{categoryLabels[c?.category as keyof typeof categoryLabels]?.[0]}</i>
               )}</span>
@@ -296,8 +315,10 @@ function CalendarView({ logs, month, onChangeMonth, clothes }: {
 }
 
 function StatsView({ logs, clothes, month }: { logs: LogItem[]; clothes: ClothesItem[]; month: { year: number; month: number } }) {
+  const uniqueDateCount = new Set(logs.map(l => l.date)).size;
   const wearCount: Record<string, number> = {};
-  for (const log of logs) for (const cid of log.clothesIds) wearCount[cid] = (wearCount[cid] ?? 0) + 1;
+  const counted = new Set<string>();
+  for (const log of logs) for (const cid of log.clothesIds) { const key = `${log.date}:${cid}`; if (!counted.has(key)) { counted.add(key); wearCount[cid] = (wearCount[cid] ?? 0) + 1; } }
 
   const wornIds = new Set(Object.keys(wearCount));
   const utilization = clothes.length > 0 ? Math.round((wornIds.size / clothes.length) * 100) : 0;
@@ -335,7 +356,7 @@ function StatsView({ logs, clothes, month }: { logs: LogItem[]; clothes: Clothes
   return <section className="stats">
     <p className="eyebrow">{month.year}年 {month.month}月</p>
     <div className="stats-cards">
-      <div className="stat-card"><p className="stat-value">{logs.length}</p><p className="stat-label">記録日数</p></div>
+      <div className="stat-card"><p className="stat-value">{uniqueDateCount}</p><p className="stat-label">記録日数</p></div>
       <div className="stat-card"><p className="stat-value">{utilization}<small>%</small></p><p className="stat-label">着用率</p></div>
       <div className="stat-card"><p className="stat-value">{wornIds.size}<small>/{clothes.length}</small></p><p className="stat-label">着用数</p></div>
     </div>

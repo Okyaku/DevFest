@@ -4,7 +4,9 @@ import admin from "firebase-admin";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
+import pg from "pg";
+const { Pool, types } = pg;
+types.setTypeParser(1082, (val: string) => val);
 import { analyzeInputSchema, analyzeItemInputSchema, analyzeOutfitInputSchema, clothesInputSchema, logInputSchema, profileInputSchema, uploadRequestSchema, type AnalyzeOutfitResult } from "@ai-closet/shared";
 import { analyzeItem, ANALYSIS_VERSION, buildOutfitSlots, detectOutfit, ImageNotUsableError } from "./ai/analyze.js";
 import type { ClosetRow } from "./ai/matching.js";
@@ -76,7 +78,7 @@ app.get("/api/clothes", async c=>{ const uid=c.get("uid"); const { rows }=await 
 app.post("/api/clothes", async c=>{ const uid=c.get("uid"), item=clothesInputSchema.parse(await c.req.json()); if(item.imageKey && !ownsKey(uid,item.imageKey,["items"])) return c.json({ok:false,error:"Forbidden"},403); await ensureUser(uid); const {rows:[created]}=await db.query("INSERT INTO clothes (user_id,category,sub_category,color,sleeve_length,hem_length,seasons,scene,image_key,name,notes,category_color,ai_tags,ai_confidence,analysis_version,analyzed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,CASE WHEN $13::jsonb IS NULL THEN NULL ELSE NOW() END) RETURNING id AS \"clothesId\", category, color, image_key AS \"imageKey\", name",[uid,item.category,item.subCategory??null,item.color,item.sleeveLength??null,item.hemLength??null,item.season,item.scene??null,item.imageKey??null,item.name??null,item.notes??null,`${item.category}#${item.color}`,item.ai?JSON.stringify(item.ai.tags):null,item.ai?JSON.stringify(item.ai.confidence):null,item.ai?.analysisVersion??null]); return c.json({ok:true,item:created},201); });
 app.get("/api/clothes/:id", async c=>{ const {rows}=await db.query("SELECT id AS \"clothesId\", category, sub_category AS \"subCategory\", color, sleeve_length AS \"sleeveLength\", hem_length AS \"hemLength\", seasons AS season, scene, image_key AS \"imageKey\", name, notes FROM clothes WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL",[c.req.param("id"),c.get("uid")]); return rows[0]?c.json({ok:true,item:rows[0]}):c.json({ok:false,error:"Not found"},404); });
 app.delete("/api/clothes/:id", async c=>{ const result=await db.query("UPDATE clothes SET deleted_at=NOW(),updated_at=NOW() WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL",[c.req.param("id"),c.get("uid")]); return result.rowCount?c.json({ok:true}):c.json({ok:false,error:"Not found"},404); });
-app.get("/api/logs", async c=>{ const uid=c.get("uid"), from=c.req.query("from"),to=c.req.query("to"); if(!from||!to) return c.json({ok:false,error:"from and to are required"},400); const {rows}=await db.query("SELECT id AS \"logId\", local_date AS date, selfie_key AS \"selfieKey\", selections, created_at AS \"createdAt\", COALESCE(array_agg(wli.clothes_id) FILTER (WHERE wli.clothes_id IS NOT NULL),'{}') AS \"clothesIds\" FROM wear_logs wl LEFT JOIN wear_log_items wli ON wli.wear_log_id=wl.id WHERE wl.user_id=$1 AND wl.local_date BETWEEN $2 AND $3 GROUP BY wl.id ORDER BY wl.local_date DESC",[uid,from,to]); return c.json({ok:true,items:rows}); });
+app.get("/api/logs", async c=>{ const uid=c.get("uid"), from=c.req.query("from"),to=c.req.query("to"); if(!from||!to) return c.json({ok:false,error:"from and to are required"},400); const {rows}=await db.query("SELECT id AS \"logId\", to_char(local_date,'YYYY-MM-DD') AS date, selfie_key AS \"selfieKey\", selections, created_at AS \"createdAt\", COALESCE(array_agg(wli.clothes_id) FILTER (WHERE wli.clothes_id IS NOT NULL),'{}') AS \"clothesIds\" FROM wear_logs wl LEFT JOIN wear_log_items wli ON wli.wear_log_id=wl.id WHERE wl.user_id=$1 AND wl.local_date BETWEEN $2 AND $3 GROUP BY wl.id ORDER BY wl.local_date DESC",[uid,from,to]); return c.json({ok:true,items:rows}); });
 app.post("/api/logs", async c=>{
   const uid=c.get("uid"), input=logInputSchema.parse(await c.req.json());
   if(input.selfieKey && !ownsKey(uid,input.selfieKey,["selfies"])) return c.json({ok:false,error:"Forbidden"},403);
@@ -91,6 +93,17 @@ app.post("/api/logs", async c=>{
     await client.query("COMMIT");
     return c.json({ok:true,item:{...input,clothesIds,logId:log.logId}},201);
   } catch(error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+});
+app.delete("/api/logs/:id", async c => {
+  const uid = c.get("uid"), logId = c.req.param("id");
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM wear_log_items WHERE wear_log_id IN (SELECT id FROM wear_logs WHERE id=$1 AND user_id=$2)", [logId, uid]);
+    const result = await client.query("DELETE FROM wear_logs WHERE id=$1 AND user_id=$2", [logId, uid]);
+    await client.query("COMMIT");
+    return result.rowCount ? c.json({ ok: true }) : c.json({ ok: false, error: "Not found" }, 404);
+  } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 });
 app.post("/api/analyze-item", async c=>{
   const uid=c.get("uid"), {imageKey}=analyzeItemInputSchema.parse(await c.req.json());
