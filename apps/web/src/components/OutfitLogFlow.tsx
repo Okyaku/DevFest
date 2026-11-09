@@ -58,7 +58,9 @@ function demoAnalysis(items: ClosetItem[]): Analysis {
   };
 }
 
-export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegister: () => void }) {
+type ParentClothesItem = { clothesId: string; category: string; color: string; name?: string | null; imageUrl?: string | null };
+
+export function OutfitLogFlow({ close, onRegister, parentClothes }: { close: () => void; onRegister: () => void; parentClothes?: ParentClothesItem[] }) {
   const [step, setStep] = useState<Step>("camera");
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [photoUrl, setPhotoUrl] = useState("");
@@ -69,6 +71,12 @@ export function OutfitLogFlow({ close, onRegister }: { close: () => void; onRegi
   const [picks, setPicks] = useState<Record<string, Pick | null>>({});
   const [manualPicks, setManualPicks] = useState<string[]>([]);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (parentClothes && parentClothes.length > 0 && (step === "select" || step === "saving")) {
+      setCloset(parentClothes as ClosetItem[]);
+    }
+  }, [parentClothes]);
 
   useEffect(() => {
     if (!photo) { setPhotoUrl(""); return; }
