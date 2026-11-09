@@ -2,7 +2,9 @@ import { GoogleGenAI } from "@google/genai";
 import type { z } from "zod";
 
 /** モデル名は将来変わるため環境変数で差し替える */
-export const MODEL = process.env.VERTEX_AI_MODEL ?? "gemini-2.5-flash";
+export const MODEL = process.env.VERTEX_AI_MODEL ?? "gemini-3.1-flash-lite";
+/** 画像生成が必要な試着は、構造化出力用モデルとは分ける */
+export const TRY_ON_MODEL = process.env.VERTEX_AI_TRY_ON_MODEL ?? "gemini-3.1-flash-lite-image";
 export const AI_MOCK = process.env.AI_MOCK === "true";
 const TIMEOUT_MS = Number(process.env.VERTEX_AI_TIMEOUT_MS ?? 25_000);
 

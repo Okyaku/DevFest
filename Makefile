@@ -39,7 +39,7 @@ deploy-web: build-web ## Firebase Hosting へ Web を直接デプロイ
 
 deploy-api: ## API イメージを Cloud Build で作成し Cloud Run へデプロイ
 	gcloud builds submit --project=$(PROJECT_ID) --config=infra/cloudbuild.api.yaml .
-	gcloud run deploy $(API_SERVICE) --project=$(PROJECT_ID) --image=$(API_IMAGE) --region=$(REGION) --service-account=ai-closet-api@$(PROJECT_ID).iam.gserviceaccount.com --allow-unauthenticated --max-instances=2 --min-instances=0 --add-cloudsql-instances=$(PROJECT_ID):$(REGION):ai-closet-db --update-env-vars '^@^FIREBASE_PROJECT_ID=$(PROJECT_ID)@GCS_BUCKET=$(PROJECT_ID)-ai-closet@ALLOWED_ORIGINS=http://localhost:3000,https://$(PROJECT_ID).web.app,https://$(PROJECT_ID).firebaseapp.com@VERTEX_AI_MODEL=gemini-2.0-flash'
+	gcloud run deploy $(API_SERVICE) --project=$(PROJECT_ID) --image=$(API_IMAGE) --region=$(REGION) --service-account=ai-closet-api@$(PROJECT_ID).iam.gserviceaccount.com --allow-unauthenticated --max-instances=2 --min-instances=0 --add-cloudsql-instances=$(PROJECT_ID):$(REGION):ai-closet-db --update-env-vars '^@^FIREBASE_PROJECT_ID=$(PROJECT_ID)@GCS_BUCKET=$(PROJECT_ID)-ai-closet@ALLOWED_ORIGINS=http://localhost:3000,https://$(PROJECT_ID).web.app,https://$(PROJECT_ID).firebaseapp.com@VERTEX_AI_MODEL=gemini-3.1-flash-lite@VERTEX_AI_TRY_ON_MODEL=gemini-3.1-flash-lite-image@VERTEX_AI_LOCATION=global'
 
 api-health: ## デプロイ済み API のヘルスチェック
 	curl --fail --silent --show-error $(API_URL)/health

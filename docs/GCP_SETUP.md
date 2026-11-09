@@ -36,10 +36,10 @@ printf '%s' 'postgresql://aicloset:パスワード@/aicloset?host=/cloudsql/YOUR
 ローカル端末から行う場合は Cloud SQL Auth Proxy を使って `infra/database/` の SQL を番号順（`001_initial.sql` → `002_profile_fields.sql` → `003_ai_logic.sql`）に適用します。その後、リポジトリのルートで以下を実行します。
 
 ```bash
-gcloud run deploy ai-closet-api --source apps/api --region asia-northeast1 --allow-unauthenticated --max-instances 2 --set-env-vars FIREBASE_PROJECT_ID=YOUR_PROJECT_ID,GCS_BUCKET=YOUR_PROJECT_ID-ai-closet,ALLOWED_ORIGINS=http://localhost:3000,VERTEX_AI_MODEL=gemini-2.5-flash,VERTEX_AI_LOCATION=us-central1 --set-secrets DATABASE_URL=database-url:latest --add-cloudsql-instances YOUR_PROJECT_ID:asia-northeast1:ai-closet-db
+gcloud run deploy ai-closet-api --source apps/api --region asia-northeast1 --allow-unauthenticated --max-instances 2 --set-env-vars FIREBASE_PROJECT_ID=YOUR_PROJECT_ID,GCS_BUCKET=YOUR_PROJECT_ID-ai-closet,ALLOWED_ORIGINS=http://localhost:3000,VERTEX_AI_MODEL=gemini-3.1-flash-lite,VERTEX_AI_TRY_ON_MODEL=gemini-3.1-flash-lite-image,VERTEX_AI_LOCATION=global --set-secrets DATABASE_URL=database-url:latest --add-cloudsql-instances YOUR_PROJECT_ID:asia-northeast1:ai-closet-db
 ```
 
-AI 解析（`/api/analyze-item`、`/api/analyze-outfit`）は `VERTEX_AI_MODEL` と `VERTEX_AI_LOCATION` のモデルを呼びます。モデルを使わずに画面を確認するときは `AI_MOCK=true` を設定すると、固定の解析結果を返します。
+AI 解析・チャット・コーデ提案は `VERTEX_AI_MODEL` と `VERTEX_AI_LOCATION` のモデルを呼びます。バーチャル試着は画像生成向けの `VERTEX_AI_TRY_ON_MODEL` を呼びます。モデルを使わずに画面を確認するときは `AI_MOCK=true` を設定すると、固定の解析結果を返します。
 
 `--allow-unauthenticated` はブラウザから API に到達させるためです。各 API は Firebase ID トークンを検証するので、データ操作は認証済みユーザーに限定されます。
 
