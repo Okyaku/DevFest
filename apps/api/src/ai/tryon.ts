@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { MODEL, AI_MOCK } from "./model.js";
+import { TRY_ON_MODEL, AI_MOCK } from "./model.js";
 
 let client: GoogleGenAI | null = null;
 function getClient() {
@@ -64,7 +64,7 @@ export async function tryOn(input: TryOnInput): Promise<TryOnResult> {
   }
 
   const res = await getClient().models.generateContent({
-    model: "gemini-2.0-flash-exp",
+    model: TRY_ON_MODEL,
     contents: [{ role: "user", parts: reqParts }],
     config: {
       responseModalities: ["IMAGE", "TEXT"],
