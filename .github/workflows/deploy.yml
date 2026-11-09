@@ -42,6 +42,11 @@ jobs:
       # production bundle is configured without committing a local .env file.
       - run: make deploy-web
         env:
+          # These NEXT_PUBLIC_* values are embedded in the static bundle at build time.
+          # Keep demo mode disabled so the production UI sends authenticated requests
+          # to the deployed Cloud Run API.
+          NEXT_PUBLIC_API_BASE_URL: https://ai-closet-api-198951283585.asia-northeast1.run.app
+          NEXT_PUBLIC_DEMO_MODE: "false"
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
